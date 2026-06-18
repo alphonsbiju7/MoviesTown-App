@@ -554,3 +554,264 @@ document.addEventListener('keydown', (event) => {
 });
 
 boot();
+
+// ============================================
+// HERO SLIDER - Smart Selection (4 Malayalam + 2 Others)
+// ============================================
+
+const heroSlider = {
+    movies: [],
+    currentIndex: 0,
+    interval: null,
+    isTransitioning: false,
+    autoPlayDelay: 5000,
+    maxSlides: 6,
+
+    init(movies) {
+        const selected = this.getSmartSelection(movies);
+        this.movies = selected.filter(m => m.backdrop || m.poster);
+        if (this.movies.length === 0) return;
+
+        this.currentIndex = 0;
+        this.createDots();
+        this.showSlide(0);
+        this.startAutoPlay();
+        this.bindControls();
+    },
+
+    getSmartSelection(movies) {
+        // Separate Malayalam and other movies
+        const malayalam = movies.filter(m => m.isMollywood);
+        const others = movies.filter(m => !m.isMollywood);
+
+        // Sort Malayalam by year (newest first) then by rating
+        const sortedMalayalam = [...malayalam].sort((a, b) => {
+            const yearA = parseInt(a.year) || 0;
+            const yearB = parseInt(b.year) || 0;
+            if (yearA !== yearB) return yearB - yearA;
+            return (b.rating || 0) - (a.rating || 0);
+        });
+
+        // Sort Others by rating (highest first) then by year
+        const sortedOthers = [...others].sort((a, b) => {
+            if ((b.rating || 0) !== (a.rating || 0)) {
+                return (b.rating || 0) - (a.rating || 0);
+            }
+            const yearA = parseInt(a.year) || 0;
+            const yearB = parseInt(b.year) || 0;
+            return yearB - yearA;
+        });
+
+        // Take 4 Malayalam + 2 Others = Total 6
+        const selected = [
+            ...sortedMalayalam.slice(0, 4),
+            ...sortedOthers.slice(0, 2)
+        ];
+
+        // If not enough Malayalam, fill with more others
+        if (selected.length < 6) {
+            const remainingOthers = sortedOthers.slice(2, 6 - selected.length + 2);
+            selected.push(...remainingOthers);
+        }
+
+        // If still not enough, take whatever we have
+        return selected.slice(0, 6);
+    },
+
+    createDots() {
+        const dotsContainer = document.getElementById('slideDots');
+        dotsContainer.innerHTML = this.movies.map((_, i) => 
+            `<button class="hero-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></button>`
+        ).join('');
+
+        dotsContainer.querySelectorAll('.hero-dot').forEach(dot => {
+            dot.addEventListener('click', () => {
+                const index = parseInt(dot.dataset.index);
+                this.goToSlide(index);
+            });
+        });
+    },
+
+    showSlide(index) {
+        if (this.isTransitioning) return;
+        if (index < 0 || index >= this.movies.length) return;
+
+        this.isTransitioning = true;
+        const movie = this.movies[index];
+        const heroContent = document.querySelector('.hero-content');
+
+        heroContent.classList.add('fade-out');
+
+        setTimeout(() => {
+            setHero(movie);
+            
+            document.querySelectorAll('.hero-dot').forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+
+            heroContent.classList.remove('fade-out');
+            heroContent.classList.add('fade-in');
+
+            setTimeout(() => {
+                heroContent.classList.remove('fade-in');
+                this.isTransitioning = false;
+            }, 300);
+        }, 300);
+
+        this.currentIndex = index;
+    },
+
+    goToSlide(index) {
+        if (this.isTransitioning) return;
+        this.stopAutoPlay();
+        this.showSlide(index);
+        this.startAutoPlay();
+    },
+
+    nextSlide() {
+        const next = (this.currentIndex + 1) % this.movies.length;
+        this.goToSlide(next);
+    },
+
+    prevSlide() {
+        const prev = (this.currentIndex - 1 + this.movies.length) % this.movies.length;
+        this.goToSlide(prev);
+    },
+
+    startAutoPlay() {
+        this.stopAutoPlay();
+        if (this.movies.length > 1) {
+            this.interval = setInterval(() => {
+                this.nextSlide();
+            }, this.autoPlayDelay);
+        }
+    },
+
+    stopAutoPlay() {
+        if (this.interval) {
+            clearInterval(this.interval);
+            this.interval = null;
+        }
+    },
+
+    bindControls() {
+        document.getElementById('slidePrev').addEventListener('click', () => {
+            this.prevSlide();
+        });
+
+        document.getElementById('slideNext').addEventListener('click', () => {
+            this.nextSlide();
+        });
+
+        const heroSection = document.getElementById('heroSection');
+        heroSection.addEventListener('mouseenter', () => {
+            this.stopAutoPlay();
+        });
+        heroSection.addEventListener('mouseleave', () => {
+            this.startAutoPlay();
+        });
+    },
+
+    updateMovies(movies) {
+        const selected = this.getSmartSelection(movies);
+        const filtered = selected.filter(m => m.backdrop || m.poster);
+        if (filtered.length === 0) return;
+        
+        this.movies = filtered;
+        this.currentIndex = 0;
+        this.createDots();
+        this.showSlide(0);
+        this.stopAutoPlay();
+        this.startAutoPlay();
+    }
+};
+
+// ============================================
+// OVERRIDE: setHero with region label
+// ============================================
+
+const originalSetHero = setHero;
+setHero = function(movie) {
+    if (!movie) return;
+    state.currentHero = movie;
+    heroSection.style.backgroundImage = `url('${movie.backdrop || movie.poster || DEFAULT_POSTER}')`;
+    heroTitle.textContent = movie.title;
+    
+    const regionLabel = movie.isMollywood ? '🇮🇳 Mollywood' : movie.isIndian ? '🇮🇳 Indian' : '🌍 Global';
+    heroMeta.textContent = `${movie.year} • ${regionLabel} • ${movie.genreNames.slice(0, 3).join(' • ')} • IMDb ${movie.rating.toFixed(1)}`;
+    heroOverview.textContent = movie.overview;
+};
+
+// ============================================
+// OVERRIDE: applyFilters - Smart selection for hero
+// ============================================
+
+const originalApplyFilters = applyFilters;
+applyFilters = function(initial = false) {
+    let filtered = [...state.catalog];
+    const query = state.searchTerm.trim().toLowerCase();
+
+    if (state.selectedGenre === 'Mollywood') {
+        filtered = filtered.filter((movie) => movie.isMollywood);
+    } else if (state.selectedGenre === 'Indian') {
+        filtered = filtered.filter((movie) => movie.isIndian);
+    } else if (state.selectedGenre !== 'All') {
+        filtered = filtered.filter((movie) => movie.genreNames.includes(state.selectedGenre));
+    }
+
+    if (query) {
+        filtered = filtered.filter((movie) => 
+            [movie.title, movie.year, movie.country, movie.genreNames.join(' '), movie.overview]
+                .join(' ')
+                .toLowerCase()
+                .includes(query)
+        );
+    }
+
+    filtered.sort(sortPriority);
+    state.filtered = filtered;
+
+    // Update slider with smart selection (4 Malayalam + 2 Others)
+    if (filtered.length > 0) {
+        heroSlider.updateMovies(filtered);
+    }
+
+    if (query) {
+        resultsTitle.textContent = 'Search Results';
+        setStatus(`Showing ${filtered.length} result${filtered.length === 1 ? '' : 's'} for "${state.searchTerm.trim()}"`);
+    } else if (state.selectedGenre === 'Mollywood') {
+        resultsTitle.textContent = 'Mollywood Picks';
+        setStatus('Showing Mollywood titles first');
+    } else if (state.selectedGenre === 'Indian') {
+        resultsTitle.textContent = 'Indian Cinema';
+        setStatus('Showing Indian titles first');
+    } else {
+        resultsTitle.textContent = 'Trending In MOVIESTOWN';
+        setStatus(`Browsing ${filtered.length} movies`);
+    }
+
+    renderMovies(filtered);
+};
+
+// ============================================
+// OVERRIDE: boot - Initialize slider with smart selection
+// ============================================
+
+const originalBoot = boot;
+boot = async function() {
+    try {
+        await fetchCatalogFromTmdb();
+        if (state.catalog.length > 0) {
+            heroSlider.init(state.catalog);
+        }
+    } catch (error) {
+        console.error('TMDB load error:', error);
+        state.catalog = fallbackCatalog;
+        buildGenreChips();
+        applyFilters(true);
+        setStatus('TMDB is unavailable right now, showing a small fallback catalog');
+        setLoadingGrid('Using fallback catalog...');
+        renderMovies(state.catalog);
+        heroSlider.init(state.catalog);
+    }
+};
